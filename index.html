@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Promojagers PDF</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #f4f1eb;
+      --surface:  #ffffff;
+      --border:   #e0dbd0;
+      --text:     #1a1814;
+      --muted:    #7a756a;
+      --accent:   #e85d1a;
+      --accent2:  #f5a623;
+      --success:  #2d7a3a;
+      --error:    #c0392b;
+      --radius:   6px;
+      --font:     'DM Sans', sans-serif;
+      --mono:     'DM Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 560px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
+    }
+
+    .card-header {
+      background: var(--text);
+      color: #fff;
+      padding: 28px 32px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .card-header::after {
+      content: '';
+      position: absolute;
+      right: -20px; top: -20px;
+      width: 120px; height: 120px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: .15;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .logo-text {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -.01em;
+    }
+    .logo-text span { color: var(--accent2); }
+
+    .tagline {
+      font-size: 13px;
+      color: rgba(255,255,255,.55);
+      font-family: var(--mono);
+    }
+
+    .card-body {
+      padding: 28px 32px 32px;
+    }
+
+    .field-label {
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .input-wrap {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    input[type="url"] {
+      flex: 1;
+      padding: 11px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--text);
+      background: var(--bg);
+      outline: none;
+      transition: border-color .15s;
+      min-width: 0;
+    }
+    input[type="url"]:focus { border-color: var(--accent); background: #fff; }
+    input[type="url"]::placeholder { color: var(--muted); opacity: .7; }
+
+    .btn {
+      padding: 11px 20px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s, transform .1s;
+    }
+    .btn:hover  { background: #d05015; }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+
+    .btn-secondary {
+      background: var(--text);
+      width: 100%;
+      padding: 13px;
+      font-size: 15px;
+      border-radius: var(--radius);
+    }
+    .btn-secondary:hover { background: #2d2a26; }
+
+    /* ── Status section ── */
+    .status { margin-top: 24px; display: none; }
+    .status.visible { display: block; }
+
+    .folder-meta {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .meta-name {
+      font-weight: 600;
+      font-size: 15px;
+      text-transform: capitalize;
+    }
+    .meta-date {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .meta-badge {
+      background: var(--text);
+      color: #fff;
+      font-size: 12px;
+      font-family: var(--mono);
+      padding: 3px 9px;
+      border-radius: 20px;
+    }
+
+    .progress-wrap {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      height: 8px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 4px;
+      width: 0%;
+      transition: width .3s ease;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+      margin-bottom: 18px;
+    }
+
+    .page-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 28px);
+      gap: 4px;
+      margin-bottom: 20px;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+    .dot {
+      width: 28px; height: 28px;
+      border-radius: 4px;
+      background: var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      transition: background .2s, color .2s;
+    }
+    .dot.loading { background: #fde8d8; color: var(--accent); animation: pulse .8s infinite; }
+    .dot.done    { background: var(--accent); color: #fff; }
+    .dot.error   { background: #fde8e8; color: var(--error); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .5; }
+    }
+
+    .msg {
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      margin-bottom: 14px;
+    }
+    .msg.error   { background: #fde8e8; color: var(--error); border: 1px solid #f5c6c6; }
+    .msg.success { background: #e6f4ea; color: var(--success); border: 1px solid #b7dfc0; }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 20px 0;
+    }
+
+    .footnote {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--mono);
+      text-align: center;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="card-header">
+    <div class="logo">
+      <div class="logo-icon">📂</div>
+      <div class="logo-text">Promo<span>PDF</span></div>
+    </div>
+    <div class="tagline">promojagers.be → PDF downloader</div>
+  </div>
+
+  <div class="card-body">
+    <div class="field-label">Folder URL</div>
+    <div class="input-wrap">
+      <input
+        type="url"
+        id="urlInput"
+        placeholder="https://www.promojagers.be/folders/..."
+        onkeydown="if(event.key==='Enter') start()"
+      >
+      <button class="btn" id="startBtn" onclick="start()">Download</button>
+    </div>
+
+    <div class="status" id="status">
+      <div class="divider"></div>
+
+      <div class="folder-meta" id="folderMeta" style="display:none">
+        <div>
+          <div class="meta-name" id="metaName">—</div>
+          <div class="meta-date" id="metaDate">—</div>
+        </div>
+        <div class="meta-badge" id="metaBadge">— p.</div>
+      </div>
+
+      <div id="msgBox"></div>
+
+      <div class="progress-wrap" id="progressWrap" style="display:none">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="progress-label" id="progressLabel" style="display:none">
+        <span id="progressText">Bezig...</span>
+        <span id="progressPct">0%</span>
+      </div>
+
+      <div class="page-grid" id="pageGrid"></div>
+
+      <button class="btn btn-secondary" id="saveBtn" style="display:none" onclick="savePdf()">
+        ⬇ PDF opslaan
+      </button>
+    </div>
+
+    <div class="footnote">Draait op Vercel · images via promojagers.be CDN</div>
+  </div>
+</div>
+
+<script>
+  const { jsPDF } = window.jspdf;
+
+  let pdfDoc = null;
+  let pageWidth = null;
+  let pageHeight = null;
+
+  function setMsg(text, type = '') {
+    const box = document.getElementById('msgBox');
+    box.innerHTML = text
+      ? `<div class="msg ${type}">${text}</div>`
+      : '';
+  }
+
+  function setProgress(done, total) {
+    const pct = Math.round((done / total) * 100);
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressText').textContent =
+      `Pagina ${done} van ${total} verwerkt`;
+    document.getElementById('progressPct').textContent = pct + '%';
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload  = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(blob);
+    });
+  }
+
+  function getImgDimensions(dataUrl) {
+    return new Promise(res => {
+      const img = new Image();
+      img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+      img.src = dataUrl;
+    });
+  }
+
+  async function fetchImageDataUrl(proxyUrl, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        return await blobToDataUrl(blob);
+      } catch (e) {
+        if (i === retries - 1) throw e;
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+  }
+
+  async function start() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) { setMsg('Vul een URL in.', 'error'); return; }
+
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('status').classList.add('visible');
+    document.getElementById('saveBtn').style.display = 'none';
+    document.getElementById('pageGrid').innerHTML = '';
+    document.getElementById('folderMeta').style.display = 'none';
+    document.getElementById('progressWrap').style.display = 'none';
+    document.getElementById('progressLabel').style.display = 'none';
+    setMsg('Folder ophalen…');
+    pdfDoc = null;
+
+    let folderInfo;
+    try {
+      const resp = await fetch(`/api/folder?url=${encodeURIComponent(url)}`);
+      folderInfo = await resp.json();
+      if (!resp.ok) throw new Error(folderInfo.error || `HTTP ${resp.status}`);
+    } catch (e) {
+      setMsg(`Fout bij ophalen folder: ${e.message}`, 'error');
+      document.getElementById('startBtn').disabled = false;
+      return;
+    }
+
+    const { store, validFrom, pageCount, pages } = folderInfo;
+
+    // Show meta
+    document.getElementById('metaName').textContent =
+      store.charAt(0).toUpperCase() + store.slice(1);
+    document.getElementById('metaDate').textContent = validFrom || '—';
+    document.getElementById('metaBadge').textContent = `${pageCount} p.`;
+    document.getElementById('folderMeta').style.display = 'flex';
+
+    // Build dot grid
+    const grid = document.getElementById('pageGrid');
+    pages.forEach((_, i) => {
+      const d = document.createElement('div');
+      d.className = 'dot';
+      d.textContent = i + 1;
+      d.id = `dot-${i}`;
+      grid.appendChild(d);
+    });
+
+    setMsg('');
+    document.getElementById('progressWrap').style.display = 'block';
+    document.getElementById('progressLabel').style.display = 'flex';
+    setProgress(0, pageCount);
+
+    const images = [];
+    let errors = 0;
+
+    for (let i = 0; i < pages.length; i++) {
+      const dot = document.getElementById(`dot-${i}`);
+      dot.classList.add('loading');
+
+      const proxyUrl = `/api/image?url=${encodeURIComponent(pages[i])}`;
+      try {
+        const dataUrl = await fetchImageDataUrl(proxyUrl);
+        images.push({ dataUrl, index: i });
+        dot.classList.remove('loading');
+        dot.classList.add('done');
+      } catch (e) {
+        console.warn(`Pagina ${i + 1} mislukt:`, e);
+        dot.classList.remove('loading');
+        dot.classList.add('error');
+        errors++;
+      }
+
+      setProgress(i + 1, pageCount);
+    }
+
+    if (images.length === 0) {
+      setMsg('Geen afbeeldingen gedownload. Controleer de URL of login-cookie.', 'error');
+      document.getElementById('startBtn').disabled = false;
+      return;
+    }
+
+    // Build PDF
+    setMsg('PDF samenstellen…');
+
+    // Sort by original order
+    images.sort((a, b) => a.index - b.index);
+
+    // Determine page size from first image
+    const { w, h } = await getImgDimensions(images[0].dataUrl);
+    const DPI = 150;
+    const wMm = w / DPI * 25.4;
+    const hMm = h / DPI * 25.4;
+
+    pdfDoc = new jsPDF({
+      orientation: wMm > hMm ? 'landscape' : 'portrait',
+      unit: 'mm',
+      format: [wMm, hMm],
+      compress: true,
+    });
+
+    for (let i = 0; i < images.length; i++) {
+      if (i > 0) pdfDoc.addPage([wMm, hMm]);
+      pdfDoc.addImage(images[i].dataUrl, 'JPEG', 0, 0, wMm, hMm, undefined, 'FAST');
+    }
+
+    const errMsg = errors > 0
+      ? ` (${errors} pagina${errors > 1 ? "'s" : ''} overgeslagen)`
+      : '';
+    setMsg(
+      `✓ PDF klaar — ${images.length} pagina's${errMsg}`,
+      errors > 0 ? '' : 'success'
+    );
+    document.getElementById('saveBtn').style.display = 'block';
+
+    // Store filename
+    const safeStore = store.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const safeDate  = (validFrom || '').replace(/[^0-9-]/g, '');
+    document.getElementById('saveBtn').dataset.filename =
+      `${safeStore}_${safeDate}.pdf`;
+
+    document.getElementById('startBtn').disabled = false;
+  }
+
+  function savePdf() {
+    if (!pdfDoc) return;
+    const fname = document.getElementById('saveBtn').dataset.filename || 'folder.pdf';
+    pdfDoc.save(fname);
+  }
+</script>
+</body>
+</html>
