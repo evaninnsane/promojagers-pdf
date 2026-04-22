@@ -73,7 +73,8 @@ async function getSessionCookie() {
 
   // Na succesvolle 302: de initSession IS al geauthenticeerd.
   // Laravel werkt server-side — cookiewaarde verandert niet, alleen de server-state.
-  // Gebruik nieuwe session cookie als die er is, anders initSession.
+  const setCookieArr = loginResp.headers.getSetCookie?.() ||
+    (loginResp.headers.get('set-cookie') || '').split(/,(?=[^ ])/).filter(Boolean);
   const sessionCookieLine = setCookieArr.find(c =>
     c.includes('promojagers_session') || c.includes('laravel_session')
   );
