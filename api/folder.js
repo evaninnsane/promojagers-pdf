@@ -71,37 +71,25 @@ async function getSessionCookie() {
     throw new Error(`Login mislukt (HTTP ${loginResp.status}). Controleer je e-mail/wachtwoord.`);
   }
 
-  // Haal vernieuwde session cookie op — gebruik getSetCookie() (Node 18+)
-  // headers.get('set-cookie') faalt bij meerdere Set-Cookie headers
-  const setCookieArr = loginResp.headers.getSetCookie?.() || 
-    (loginResp.headers.get('set-cookie') || '').split(/,(?=[^ ])/).filter(Boolean);
-
-  // Zoek de session cookie (naam kan variëren)
+  // Na succesvolle 302: de initSession IS al geauthenticeerd.
+  // Laravel werkt server-side — cookiewaarde verandert niet, alleen de server-state.
+  // Gebruik nieuwe session cookie als die er is, anders initSession.
   const sessionCookieLine = setCookieArr.find(c =>
     c.includes('promojagers_session') || c.includes('laravel_session')
   );
-  const newSession = sessionCookieLine?.match(/([a-z_]+session)=([^;]+)/i);
+  const newSessionMatch = sessionCookieLine?.match(/([a-z_]+session)=([^;]+)/i);
 
-  // Bij 200 (fout) kijken we of de pagina een foutmelding bevat
-  if (loginResp.status === 200) {
-    const errHtml = await loginResp.text().catch(() => '');
-    if (errHtml.includes('These credentials do not match') || errHtml.includes('Onjuist')) {
-      throw new Error('Login mislukt: e-mail of wachtwoord klopt niet.');
-    }
+  const finalCookie = newSessionMatch
+    ? `${newSessionMatch[1]}=${newSessionMatch[2]}`
+    : initSession
+      ? `promojagers_session=${initSession}`
+      : null;
+
+  if (!finalCookie) {
+    throw new Error(`Login mislukt: geen session-cookie beschikbaar. Controleer je e-mail/wachtwoord. Cookies: ${setCookieArr.join(' | ').slice(0, 300)}`);
   }
 
-  if (!newSession) {
-    // Fallback: dump alle cookies voor debug
-    const allCookies = setCookieArr.join(' | ');
-    if (initSession) {
-      cachedCookie = `promojagers_session=${initSession}`;
-      cacheTime = Date.now();
-      return cachedCookie;
-    }
-    throw new Error(`Login leek te lukken maar geen session-cookie gevonden. Cookies: ${allCookies.slice(0, 300)}`);
-  }
-
-  cachedCookie = `${newSession[1]}=${newSession[2]}`;
+  cachedCookie = finalCookie;
   cacheTime = Date.now();
   return cachedCookie;
 }
