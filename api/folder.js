@@ -30,67 +30,75 @@ async function getSessionCookie() {
     );
   }
 
-  // Stap 1: GET /login → haal CSRF _token op uit HTML + initiële cookies
-  const loginPage = await fetch('https://www.promojagers.be/login', {
-    headers: { ...BASE_HEADERS, Accept: 'text/html' },
+  // Helper: alle Set-Cookie headers correct uitlezen
+  const getCookies = (resp) =>
+    resp.headers.getSetCookie?.() ||
+    [resp.headers.get('set-cookie')].filter(Boolean);
+
+  const pickCookiePair = (cookies, namePart) => {
+    const line = cookies.find(c => c.toLowerCase().includes(namePart.toLowerCase() + '='));
+    return line ? line.split(';')[0] : null; // "name=value"
+  };
+
+  // Stap 1: /sanctum/csrf-cookie haalt XSRF-TOKEN + session op (Sanctum SPA flow)
+  const csrfResp = await fetch('https://www.promojagers.be/sanctum/csrf-cookie', {
+    headers: { ...BASE_HEADERS, Accept: 'application/json' },
     redirect: 'follow',
   });
-  const html = await loginPage.text();
-  const cookieHeader = loginPage.headers.get('set-cookie') || '';
+  const csrfCookies = getCookies(csrfResp);
 
-  // Laravel CSRF token zit als hidden input in de HTML
-  const tokenMatch = html.match(/name="_token"\s+value="([^"]+)"/);
-  const csrfToken  = tokenMatch ? tokenMatch[1] : '';
+  // Fallback: haal cookies op van de /login pagina als sanctum niets geeft
+  let allInitCookies = csrfCookies;
+  if (!csrfCookies.some(c => c.toLowerCase().includes('xsrf'))) {
+    const lpResp = await fetch('https://www.promojagers.be/login', {
+      headers: { ...BASE_HEADERS, Accept: 'text/html' },
+      redirect: 'follow',
+    });
+    allInitCookies = getCookies(lpResp);
+  }
 
-  // Pak XSRF-TOKEN cookie (Sanctum) en initiële session cookie
-  const xsrfMatch   = cookieHeader.match(/XSRF-TOKEN=([^;]+)/);
-  const xsrfToken   = xsrfMatch ? decodeURIComponent(xsrfMatch[1]) : '';
-  const sessMatch   = cookieHeader.match(/promojagers_session=([^;]+)/);
-  const initSession = sessMatch ? sessMatch[1] : '';
+  const xsrfPair    = pickCookiePair(allInitCookies, 'XSRF-TOKEN');
+  const sessionPair = allInitCookies.map(c => c.split(';')[0])
+                        .find(c => c.toLowerCase().includes('session'));
 
-  // Stap 2: POST /login met form-encoded data (standaard Laravel web auth)
-  const body = new URLSearchParams({ email, password, _token: csrfToken });
+  const xsrfRaw     = xsrfPair?.split('=').slice(1).join('=') || '';
+  const xsrfDecoded = decodeURIComponent(xsrfRaw);
+  const cookieStr   = [xsrfPair, sessionPair].filter(Boolean).join('; ');
 
+  // Stap 2: POST /login met JSON (Sanctum SPA)
   const loginResp = await fetch('https://www.promojagers.be/login', {
     method: 'POST',
     headers: {
       ...BASE_HEADERS,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'text/html,application/xhtml+xml',
-      Cookie: [
-        xsrfToken   ? `XSRF-TOKEN=${encodeURIComponent(xsrfToken)}` : '',
-        initSession ? `promojagers_session=${initSession}` : '',
-      ].filter(Boolean).join('; '),
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/plain, */*',
+      'X-XSRF-TOKEN': xsrfDecoded,
+      Cookie: cookieStr,
     },
-    body: body.toString(),
-    redirect: 'manual', // Niet volgen — 302 redirect is het succesteken
+    body: JSON.stringify({ email, password }),
+    redirect: 'manual',
   });
 
-  // Laravel geeft 302 redirect terug bij succes, 200/422 bij fout
-  if (loginResp.status !== 302 && loginResp.status !== 200) {
-    throw new Error(`Login mislukt (HTTP ${loginResp.status}). Controleer je e-mail/wachtwoord.`);
+  if (loginResp.status === 422) {
+    const body = await loginResp.json().catch(() => ({}));
+    throw new Error(`Login mislukt: ${body.message || 'e-mail of wachtwoord klopt niet'}`);
+  }
+  if (loginResp.status >= 400) {
+    throw new Error(`Login mislukt (HTTP ${loginResp.status}).`);
   }
 
-  // Na succesvolle 302: de initSession IS al geauthenticeerd.
-  // Laravel werkt server-side — cookiewaarde verandert niet, alleen de server-state.
-  const setCookieArr = loginResp.headers.getSetCookie?.() ||
-    (loginResp.headers.get('set-cookie') || '').split(/,(?=[^ ])/).filter(Boolean);
-  const sessionCookieLine = setCookieArr.find(c =>
-    c.includes('promojagers_session') || c.includes('laravel_session')
-  );
-  const newSessionMatch = sessionCookieLine?.match(/([a-z_]+session)=([^;]+)/i);
+  // Combineer cookies van init + login response; neem de meest recente session
+  const loginCookies = getCookies(loginResp);
+  const finalSession = [...loginCookies, ...allInitCookies]
+    .map(c => c.split(';')[0])
+    .find(c => c.toLowerCase().includes('session'));
 
-  const finalCookie = newSessionMatch
-    ? `${newSessionMatch[1]}=${newSessionMatch[2]}`
-    : initSession
-      ? `promojagers_session=${initSession}`
-      : null;
-
-  if (!finalCookie) {
-    throw new Error(`Login mislukt: geen session-cookie beschikbaar. Controleer je e-mail/wachtwoord. Cookies: ${setCookieArr.join(' | ').slice(0, 300)}`);
+  if (!finalSession) {
+    const names = [...loginCookies, ...allInitCookies].map(c => c.split('=')[0]).join(', ');
+    throw new Error(`Geen session-cookie gevonden. Beschikbare cookies: ${names}`);
   }
 
-  cachedCookie = finalCookie;
+  cachedCookie = finalSession;
   cacheTime = Date.now();
   return cachedCookie;
 }
