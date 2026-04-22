@@ -71,9 +71,16 @@ async function getSessionCookie() {
     throw new Error(`Login mislukt (HTTP ${loginResp.status}). Controleer je e-mail/wachtwoord.`);
   }
 
-  // Haal vernieuwde session cookie op uit response headers
-  const setCookies = loginResp.headers.get('set-cookie') || '';
-  const newSession = setCookies.match(/promojagers_session=([^;]+)/);
+  // Haal vernieuwde session cookie op — gebruik getSetCookie() (Node 18+)
+  // headers.get('set-cookie') faalt bij meerdere Set-Cookie headers
+  const setCookieArr = loginResp.headers.getSetCookie?.() || 
+    (loginResp.headers.get('set-cookie') || '').split(/,(?=[^ ])/).filter(Boolean);
+
+  // Zoek de session cookie (naam kan variëren)
+  const sessionCookieLine = setCookieArr.find(c =>
+    c.includes('promojagers_session') || c.includes('laravel_session')
+  );
+  const newSession = sessionCookieLine?.match(/([a-z_]+session)=([^;]+)/i);
 
   // Bij 200 (fout) kijken we of de pagina een foutmelding bevat
   if (loginResp.status === 200) {
@@ -84,16 +91,17 @@ async function getSessionCookie() {
   }
 
   if (!newSession) {
-    // Soms zit de cookie in de redirect-response — gebruik initSession als fallback
+    // Fallback: dump alle cookies voor debug
+    const allCookies = setCookieArr.join(' | ');
     if (initSession) {
       cachedCookie = `promojagers_session=${initSession}`;
       cacheTime = Date.now();
       return cachedCookie;
     }
-    throw new Error('Login leek te lukken maar er is geen session-cookie teruggegeven.');
+    throw new Error(`Login leek te lukken maar geen session-cookie gevonden. Cookies: ${allCookies.slice(0, 300)}`);
   }
 
-  cachedCookie = `promojagers_session=${newSession[1]}`;
+  cachedCookie = `${newSession[1]}=${newSession[2]}`;
   cacheTime = Date.now();
   return cachedCookie;
 }
