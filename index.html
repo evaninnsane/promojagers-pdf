@@ -318,14 +318,9 @@
       </div>
 
       <div class="bm-box">
-        <strong>Al ingelogd op promojagers.be in een ander tabblad?</strong>
-        <div>Gebruik dan onderstaande bladwijzer — die haalt de folder op met jouw eigen ingelogde sessie, zonder dat deze tool hoeft in te loggen.</div>
-        <ol class="bm-steps">
-          <li>Sleep de knop hieronder naar je bladwijzerbalk.</li>
-          <li>Open promojagers.be, log in en open de gewenste folder.</li>
-          <li>Klik op de bladwijzer. Er opent een nieuw tabblad met deze tool, gevuld met die folder.</li>
-        </ol>
-        <a class="bm-link" id="bookmarklet" href="#" onclick="return false;">📥 Haal folder op (ingelogde sessie)</a>
+        <strong>Sneller: sleep deze knop één keer naar je bladwijzerbalk.</strong>
+        <div>Open daarna gewoon een folder op promojagers.be (ingelogd) en klik op de bladwijzer. Je wordt automatisch hierheen doorgestuurd met de folder al geladen — geen URL kopiëren nodig.</div>
+        <a class="bm-link" id="bookmarklet" href="#" onclick="handleBookmarkletClick(event)">📥 Open in PromoPDF</a>
       </div>
     </div>
 
@@ -366,17 +361,12 @@
 
   let pdfDoc = null;
 
-  // ── Bridge: ontvang folder-data van de bookmarklet (draait in de
-  // ingelogde promojagers.be-tab) via postMessage, ipv server-side login. ──
-  const SOURCE_ORIGIN = 'https://www.promojagers.be';
+  // ── Bridge: de bladwijzer draait in de ingelogde promojagers.be-tab
+  // (sessiecookie gaat automatisch mee, same-origin fetch), haalt daar de
+  // folder-JSON op en stuurt de browser direct door naar deze pagina met de
+  // data in het URL-fragment (nooit naar de server — puur client-side). ──
   const TARGET_ORIGIN = location.origin;
-  const params = new URLSearchParams(location.search);
-  const BRIDGE_MODE = params.get('bridge') === '1';
 
-  // De bladwijzer-code draait in de context van www.promojagers.be, waar de
-  // sessiecookie automatisch wordt meegestuurd (same-origin fetch). Ze stuurt
-  // alleen de opgehaalde folder-JSON door aan dit tabblad — nooit het cookie
-  // of wachtwoord zelf.
   const BOOKMARKLET_SRC = `(function(){
     function findFolderId(){
       var m = location.href.match(/\\/folders\\/(\\d+)/);
@@ -389,6 +379,12 @@
       }
       return null;
     }
+    function b64EncodeUnicode(str){
+      var bytes = new TextEncoder().encode(str);
+      var binary = '';
+      for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary);
+    }
     var id = findFolderId();
     if (!id) { alert('Kon geen folder-ID vinden. Open eerst een folder op promojagers.be en klik dan op de bladwijzer.'); return; }
     fetch('/api/folders/' + id + '?include=pages', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
@@ -400,22 +396,18 @@
           .sort(function(a, b){ return (a.page || 0) - (b.page || 0); })
           .map(function(p){ return p.image_url.replace(/\\/\\d+x\\d+\\//, '/0x1600/'); });
         var payload = { store: store, validFrom: folderData.valid_from || '', pageCount: pages.length, pages: pages };
-        var target = '${TARGET_ORIGIN}';
-        var win = window.open(target + '/?bridge=1', 'promojagers_pdf_bridge');
-        if (!win) { alert('Kon geen nieuw tabblad openen. Sta pop-ups toe voor promojagers.be.'); return; }
-        var sent = false;
-        function send(){ if (sent) return; sent = true; win.postMessage({ type: 'promojagers-pdf-data', payload: payload }, target); }
-        function onMsg(ev){
-          if (ev.origin !== target) return;
-          if (ev.data && ev.data.type === 'promojagers-pdf-ready') { send(); window.removeEventListener('message', onMsg); }
-        }
-        window.addEventListener('message', onMsg);
-        setTimeout(send, 2500);
+        var encoded = encodeURIComponent(b64EncodeUnicode(JSON.stringify(payload)));
+        location.href = '${TARGET_ORIGIN}/?bridge=1#' + encoded;
       })
       .catch(function(e){ alert('Ophalen mislukt: ' + e.message + '. Ben je ingelogd op promojagers.be?'); });
   })();`;
 
   document.getElementById('bookmarklet').href = 'javascript:' + encodeURIComponent(BOOKMARKLET_SRC);
+
+  function handleBookmarkletClick(ev) {
+    ev.preventDefault();
+    alert('Sleep deze knop naar je bladwijzerbalk (in plaats van erop te klikken). Klik hem daarna aan vanaf een folder-pagina op promojagers.be.');
+  }
 
   function setMsg(text, type = '') {
     const box = document.getElementById('msgBox');
@@ -595,23 +587,26 @@
     pdfDoc.save(fname);
   }
 
-  if (BRIDGE_MODE) {
+  function b64DecodeUnicode(str) {
+    const binary = atob(str);
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('bridge') === '1' && location.hash.length > 1) {
+    const encoded = decodeURIComponent(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname); // data niet in de URL laten hangen
+
     document.getElementById('urlRow').style.display = 'none';
     resetStatusUI();
-    setMsg('Wachten op gegevens vanaf je promojagers.be-tabblad…');
 
-    if (window.opener) {
-      window.opener.postMessage({ type: 'promojagers-pdf-ready' }, SOURCE_ORIGIN);
-    } else {
-      setMsg('Dit tabblad moet via de bladwijzer geopend worden vanaf promojagers.be.', 'error');
+    try {
+      const payload = JSON.parse(b64DecodeUnicode(encoded));
+      processFolder(payload);
+    } catch (e) {
+      setMsg(`Kon de doorgestuurde folder-data niet lezen: ${e.message}`, 'error');
     }
-
-    window.addEventListener('message', (ev) => {
-      if (ev.origin !== SOURCE_ORIGIN) return;
-      if (ev.data && ev.data.type === 'promojagers-pdf-data') {
-        processFolder(ev.data.payload);
-      }
-    });
   }
 </script>
 </body>
