@@ -369,6 +369,8 @@
 
   const BOOKMARKLET_SRC = `(function(){
     function findFolderId(){
+      var q = location.href.match(/[?&]id=(\\d+)/);
+      if (q) return q[1];
       var m = location.href.match(/\\/folders\\/(\\d+)/);
       if (m) return m[1];
       var html = document.documentElement.innerHTML;
