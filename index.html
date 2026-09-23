@@ -306,20 +306,9 @@
 
   <div class="card-body">
     <div id="urlRow">
-      <div class="field-label">Folder URL</div>
-      <div class="input-wrap">
-        <input
-          type="url"
-          id="urlInput"
-          placeholder="https://www.promojagers.be/folders/..."
-          onkeydown="if(event.key==='Enter') start()"
-        >
-        <button class="btn" id="startBtn" onclick="start()">Download</button>
-      </div>
-
       <div class="bm-box">
-        <strong>Sneller: sleep deze knop één keer naar je bladwijzerbalk.</strong>
-        <div>Open daarna gewoon een folder-pagina op promojagers.be en klik op de bladwijzer. Je wordt automatisch hierheen doorgestuurd met de folder al geladen — geen URL kopiëren, geen login nodig.</div>
+        <strong>Stap 1: sleep deze knop één keer naar je bladwijzerbalk.</strong>
+        <div>Stap 2: open een folder-pagina op promojagers.be en klik op de bladwijzer. Je wordt automatisch hierheen doorgestuurd met de folder al geladen als PDF — geen login nodig.</div>
         <a class="bm-link" id="bookmarklet" href="#" onclick="handleBookmarkletClick(event)">📥 Open in PromoPDF</a>
       </div>
     </div>
@@ -475,29 +464,6 @@
         await new Promise(r => setTimeout(r, 1500));
       }
     }
-  }
-
-  async function start() {
-    const url = document.getElementById('urlInput').value.trim();
-    if (!url) { setMsg('Vul een URL in.', 'error'); return; }
-
-    document.getElementById('startBtn').disabled = true;
-    resetStatusUI();
-    setMsg('Folder ophalen…');
-
-    let folderInfo;
-    try {
-      const resp = await fetch(`/api/folder?url=${encodeURIComponent(url)}`);
-      folderInfo = await resp.json();
-      if (!resp.ok) throw new Error(folderInfo.error || `HTTP ${resp.status}`);
-    } catch (e) {
-      setMsg(`Fout bij ophalen folder: ${e.message}`, 'error');
-      document.getElementById('startBtn').disabled = false;
-      return;
-    }
-
-    await processFolder(folderInfo);
-    document.getElementById('startBtn').disabled = false;
   }
 
   function resetStatusUI() {
