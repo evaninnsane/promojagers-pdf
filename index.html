@@ -319,7 +319,7 @@
 
       <div class="bm-box">
         <strong>Sneller: sleep deze knop één keer naar je bladwijzerbalk.</strong>
-        <div>Open daarna gewoon een folder op promojagers.be (ingelogd) en klik op de bladwijzer. Je wordt automatisch hierheen doorgestuurd met de folder al geladen — geen URL kopiëren nodig.</div>
+        <div>Open daarna gewoon een folder-pagina op promojagers.be en klik op de bladwijzer. Je wordt automatisch hierheen doorgestuurd met de folder al geladen — geen URL kopiëren, geen login nodig.</div>
         <a class="bm-link" id="bookmarklet" href="#" onclick="handleBookmarkletClick(event)">📥 Open in PromoPDF</a>
       </div>
     </div>
@@ -361,25 +361,44 @@
 
   let pdfDoc = null;
 
-  // ── Bridge: de bladwijzer draait in de ingelogde promojagers.be-tab
-  // (sessiecookie gaat automatisch mee, same-origin fetch), haalt daar de
-  // folder-JSON op en stuurt de browser direct door naar deze pagina met de
-  // data in het URL-fragment (nooit naar de server — puur client-side). ──
+  // ── Bridge: promojagers.be is een Nuxt-SSR-app die de folder-data al
+  // publiek in de pagina meestuurt (script#__NUXT_DATA__), ook zonder login.
+  // De bladwijzer leest die data rechtstreeks uit de DOM — geen fetch, geen
+  // cookie, geen server-side login nodig — en stuurt de browser door naar
+  // deze pagina met de data in het URL-fragment (puur client-side). ──
   const TARGET_ORIGIN = location.origin;
 
   const BOOKMARKLET_SRC = `(function(){
-    function findFolderId(){
-      var q = location.href.match(/[?&]id=(\\d+)/);
-      if (q) return q[1];
-      var m = location.href.match(/\\/folders\\/(\\d+)/);
-      if (m) return m[1];
-      var html = document.documentElement.innerHTML;
-      var patterns = [/\\/api\\/folders\\/(\\d+)\\?include/, /"id":(\\d+),"iso":"\\d{4}/, /\\/folders\\/(\\d+)/];
-      for (var i = 0; i < patterns.length; i++) {
-        var mm = html.match(patterns[i]);
-        if (mm) return mm[1];
+    var MARKERS = { ShallowReactive:1, Reactive:1, Ref:1, ShallowRef:1, Readonly:1, ShallowReadonly:1, Set:1, Map:1, NuxtError:1, EmptyShallowReactive:1, EmptyRef:1 };
+    function decodeNuxtPayload(){
+      var el = document.getElementById('__NUXT_DATA__');
+      if (!el) return null;
+      var data = JSON.parse(el.textContent);
+      var cache = {};
+      function revive(i){
+        if (Object.prototype.hasOwnProperty.call(cache, i)) return cache[i];
+        var raw = data[i];
+        if (raw === null || typeof raw !== 'object') return raw;
+        if (Array.isArray(raw)) {
+          if (typeof raw[0] === 'string' && MARKERS[raw[0]]) {
+            var type = raw[0];
+            if (type === 'Set') return raw.slice(1).map(revive);
+            if (type === 'Map') { var o = {}; for (var k = 1; k < raw.length; k += 2) o[revive(raw[k])] = revive(raw[k + 1]); return o; }
+            var val = revive(raw[1]);
+            cache[i] = val;
+            return val;
+          }
+          var arr = [];
+          cache[i] = arr;
+          raw.forEach(function(ref){ arr.push(revive(ref)); });
+          return arr;
+        }
+        var obj = {};
+        cache[i] = obj;
+        for (var k2 in raw) obj[k2] = revive(raw[k2]);
+        return obj;
       }
-      return null;
+      return revive(0);
     }
     function b64EncodeUnicode(str){
       var bytes = new TextEncoder().encode(str);
@@ -387,21 +406,22 @@
       for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       return btoa(binary);
     }
-    var id = findFolderId();
-    if (!id) { alert('Kon geen folder-ID vinden. Open eerst een folder op promojagers.be en klik dan op de bladwijzer.'); return; }
-    fetch('/api/folders/' + id + '?include=pages', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(json){
-        var folderData = json.data;
-        var store = (folderData.store && typeof folderData.store === 'object') ? (folderData.store.name || 'folder') : 'folder';
-        var pages = (folderData.pages || [])
-          .sort(function(a, b){ return (a.page || 0) - (b.page || 0); })
-          .map(function(p){ return p.image_url.replace(/\\/\\d+x\\d+\\//, '/0x1600/'); });
-        var payload = { store: store, validFrom: folderData.valid_from || '', pageCount: pages.length, pages: pages };
-        var encoded = encodeURIComponent(b64EncodeUnicode(JSON.stringify(payload)));
-        location.href = '${TARGET_ORIGIN}/?bridge=1#' + encoded;
-      })
-      .catch(function(e){ alert('Ophalen mislukt: ' + e.message + '. Ben je ingelogd op promojagers.be?'); });
+    try {
+      var root = decodeNuxtPayload();
+      var sf = root && root.pinia && root.pinia['single-folder'];
+      var folder = sf && sf.currentFolder && sf.currentFolder.data;
+      if (!folder || !folder.pages || !folder.pages.length) {
+        alert('Kon geen folder-data vinden op deze pagina. Open eerst een folder-pagina op promojagers.be en klik dan op de bladwijzer.');
+        return;
+      }
+      var store = (folder.store && folder.store.translation && (folder.store.translation.title || folder.store.translation.route)) || 'folder';
+      var pages = folder.pages.slice().sort(function(a, b){ return (a.page || 0) - (b.page || 0); }).map(function(p){ return p.image_url; });
+      var payload = { store: store, validFrom: folder.valid_from || '', pageCount: pages.length, pages: pages };
+      var encoded = encodeURIComponent(b64EncodeUnicode(JSON.stringify(payload)));
+      location.href = '${TARGET_ORIGIN}/?bridge=1#' + encoded;
+    } catch (e) {
+      alert('Ophalen mislukt: ' + e.message);
+    }
   })();`;
 
   document.getElementById('bookmarklet').href = 'javascript:' + encodeURIComponent(BOOKMARKLET_SRC);
