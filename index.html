@@ -264,6 +264,33 @@
       text-align: center;
       margin-top: 20px;
     }
+
+    /* ── Bookmarklet box ── */
+    .bm-box {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: var(--bg);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+    .bm-box strong { color: var(--text); }
+    .bm-link {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 8px 14px;
+      background: var(--text);
+      color: #fff !important;
+      text-decoration: none;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: grab;
+    }
+    .bm-link:hover { background: #2d2a26; }
+    .bm-steps { margin: 8px 0 0; padding-left: 18px; }
+    .bm-steps li { margin-bottom: 3px; }
   </style>
 </head>
 <body>
@@ -278,15 +305,28 @@
   </div>
 
   <div class="card-body">
-    <div class="field-label">Folder URL</div>
-    <div class="input-wrap">
-      <input
-        type="url"
-        id="urlInput"
-        placeholder="https://www.promojagers.be/folders/..."
-        onkeydown="if(event.key==='Enter') start()"
-      >
-      <button class="btn" id="startBtn" onclick="start()">Download</button>
+    <div id="urlRow">
+      <div class="field-label">Folder URL</div>
+      <div class="input-wrap">
+        <input
+          type="url"
+          id="urlInput"
+          placeholder="https://www.promojagers.be/folders/..."
+          onkeydown="if(event.key==='Enter') start()"
+        >
+        <button class="btn" id="startBtn" onclick="start()">Download</button>
+      </div>
+
+      <div class="bm-box">
+        <strong>Al ingelogd op promojagers.be in een ander tabblad?</strong>
+        <div>Gebruik dan onderstaande bladwijzer — die haalt de folder op met jouw eigen ingelogde sessie, zonder dat deze tool hoeft in te loggen.</div>
+        <ol class="bm-steps">
+          <li>Sleep de knop hieronder naar je bladwijzerbalk.</li>
+          <li>Open promojagers.be, log in en open de gewenste folder.</li>
+          <li>Klik op de bladwijzer. Er opent een nieuw tabblad met deze tool, gevuld met die folder.</li>
+        </ol>
+        <a class="bm-link" id="bookmarklet" href="#" onclick="return false;">📥 Haal folder op (ingelogde sessie)</a>
+      </div>
     </div>
 
     <div class="status" id="status">
@@ -325,8 +365,57 @@
   const { jsPDF } = window.jspdf;
 
   let pdfDoc = null;
-  let pageWidth = null;
-  let pageHeight = null;
+
+  // ── Bridge: ontvang folder-data van de bookmarklet (draait in de
+  // ingelogde promojagers.be-tab) via postMessage, ipv server-side login. ──
+  const SOURCE_ORIGIN = 'https://www.promojagers.be';
+  const TARGET_ORIGIN = location.origin;
+  const params = new URLSearchParams(location.search);
+  const BRIDGE_MODE = params.get('bridge') === '1';
+
+  // De bladwijzer-code draait in de context van www.promojagers.be, waar de
+  // sessiecookie automatisch wordt meegestuurd (same-origin fetch). Ze stuurt
+  // alleen de opgehaalde folder-JSON door aan dit tabblad — nooit het cookie
+  // of wachtwoord zelf.
+  const BOOKMARKLET_SRC = `(function(){
+    function findFolderId(){
+      var m = location.href.match(/\\/folders\\/(\\d+)/);
+      if (m) return m[1];
+      var html = document.documentElement.innerHTML;
+      var patterns = [/\\/api\\/folders\\/(\\d+)\\?include/, /"id":(\\d+),"iso":"\\d{4}/, /\\/folders\\/(\\d+)/];
+      for (var i = 0; i < patterns.length; i++) {
+        var mm = html.match(patterns[i]);
+        if (mm) return mm[1];
+      }
+      return null;
+    }
+    var id = findFolderId();
+    if (!id) { alert('Kon geen folder-ID vinden. Open eerst een folder op promojagers.be en klik dan op de bladwijzer.'); return; }
+    fetch('/api/folders/' + id + '?include=pages', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        var folderData = json.data;
+        var store = (folderData.store && typeof folderData.store === 'object') ? (folderData.store.name || 'folder') : 'folder';
+        var pages = (folderData.pages || [])
+          .sort(function(a, b){ return (a.page || 0) - (b.page || 0); })
+          .map(function(p){ return p.image_url.replace(/\\/\\d+x\\d+\\//, '/0x1600/'); });
+        var payload = { store: store, validFrom: folderData.valid_from || '', pageCount: pages.length, pages: pages };
+        var target = '${TARGET_ORIGIN}';
+        var win = window.open(target + '/?bridge=1', 'promojagers_pdf_bridge');
+        if (!win) { alert('Kon geen nieuw tabblad openen. Sta pop-ups toe voor promojagers.be.'); return; }
+        var sent = false;
+        function send(){ if (sent) return; sent = true; win.postMessage({ type: 'promojagers-pdf-data', payload: payload }, target); }
+        function onMsg(ev){
+          if (ev.origin !== target) return;
+          if (ev.data && ev.data.type === 'promojagers-pdf-ready') { send(); window.removeEventListener('message', onMsg); }
+        }
+        window.addEventListener('message', onMsg);
+        setTimeout(send, 2500);
+      })
+      .catch(function(e){ alert('Ophalen mislukt: ' + e.message + '. Ben je ingelogd op promojagers.be?'); });
+  })();`;
+
+  document.getElementById('bookmarklet').href = 'javascript:' + encodeURIComponent(BOOKMARKLET_SRC);
 
   function setMsg(text, type = '') {
     const box = document.getElementById('msgBox');
@@ -379,14 +468,8 @@
     if (!url) { setMsg('Vul een URL in.', 'error'); return; }
 
     document.getElementById('startBtn').disabled = true;
-    document.getElementById('status').classList.add('visible');
-    document.getElementById('saveBtn').style.display = 'none';
-    document.getElementById('pageGrid').innerHTML = '';
-    document.getElementById('folderMeta').style.display = 'none';
-    document.getElementById('progressWrap').style.display = 'none';
-    document.getElementById('progressLabel').style.display = 'none';
+    resetStatusUI();
     setMsg('Folder ophalen…');
-    pdfDoc = null;
 
     let folderInfo;
     try {
@@ -399,6 +482,21 @@
       return;
     }
 
+    await processFolder(folderInfo);
+    document.getElementById('startBtn').disabled = false;
+  }
+
+  function resetStatusUI() {
+    document.getElementById('status').classList.add('visible');
+    document.getElementById('saveBtn').style.display = 'none';
+    document.getElementById('pageGrid').innerHTML = '';
+    document.getElementById('folderMeta').style.display = 'none';
+    document.getElementById('progressWrap').style.display = 'none';
+    document.getElementById('progressLabel').style.display = 'none';
+    pdfDoc = null;
+  }
+
+  async function processFolder(folderInfo) {
     const { store, validFrom, pageCount, pages } = folderInfo;
 
     // Show meta
@@ -448,7 +546,6 @@
 
     if (images.length === 0) {
       setMsg('Geen afbeeldingen gedownload. Controleer de URL of login-cookie.', 'error');
-      document.getElementById('startBtn').disabled = false;
       return;
     }
 
@@ -490,14 +587,31 @@
     const safeDate  = (validFrom || '').replace(/[^0-9-]/g, '');
     document.getElementById('saveBtn').dataset.filename =
       `${safeStore}_${safeDate}.pdf`;
-
-    document.getElementById('startBtn').disabled = false;
   }
 
   function savePdf() {
     if (!pdfDoc) return;
     const fname = document.getElementById('saveBtn').dataset.filename || 'folder.pdf';
     pdfDoc.save(fname);
+  }
+
+  if (BRIDGE_MODE) {
+    document.getElementById('urlRow').style.display = 'none';
+    resetStatusUI();
+    setMsg('Wachten op gegevens vanaf je promojagers.be-tabblad…');
+
+    if (window.opener) {
+      window.opener.postMessage({ type: 'promojagers-pdf-ready' }, SOURCE_ORIGIN);
+    } else {
+      setMsg('Dit tabblad moet via de bladwijzer geopend worden vanaf promojagers.be.', 'error');
+    }
+
+    window.addEventListener('message', (ev) => {
+      if (ev.origin !== SOURCE_ORIGIN) return;
+      if (ev.data && ev.data.type === 'promojagers-pdf-data') {
+        processFolder(ev.data.payload);
+      }
+    });
   }
 </script>
 </body>
